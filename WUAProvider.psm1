@@ -4,8 +4,10 @@ Function Initialize-Provider     { Write-Debug "In $($Providername) - Initialize
 Function Get-PackageProviderName { Return $Providername }
 
 Function Resolve-PackageSource {
+Param()
 
-    Write-Debug "In $($Providername) - Resolve-PackageSources"    
+    $dbgh = "In $($Providername) - Resolve-PackageSources"
+    Write-Debug $dbgh 
 
     $IsTrusted    = $true
     $IsRegistered = $true
@@ -16,7 +18,7 @@ Function Resolve-PackageSource {
     $UpdateSvc.Services | 
     Where { $_.Name -eq 'Windows Update'} | 
     ForEach-Object {
-        Write-Debug "In $($Providername) - Resolve-PackageSources WUA API from request packagesources: {0}" $_.ServiceID
+        Write-Debug "$dbgh - Resolved WUA API source $($_.Name) to: $($_.ServiceID)" 
         New-PackageSource $($_.Name) $($_.ServiceID) $IsTrusted $IsRegistered $IsValidated
     }
 }
@@ -29,10 +31,11 @@ Function Find-Package {
         [string] $maximumVersion
     )
 
-	Write-Debug "In $($Providername) - Find-Package"
+	$dbgh = "In $($Providername) - Find-Package"
+    Write-Debug $dbgh
 
     $svcid = Resolve-PackageSource
-    Write-Debug "In $($Providername) - Find-Package from resolved source $($svcid.Name)" 
+    Write-Debug "$dbgh - Using resolved source $($svcid.Name)" 
 
     try {
         $Session = New-Object -ComObject Microsoft.Update.Session
@@ -47,12 +50,12 @@ Function Find-Package {
         $SearchResult = $Searcher.Search($Criteria)
             
         if ($SearchResult.ResultCode -eq 2) {
-            Write-Debug "In $($Providername) - Found $(@($SearchResult.Updates).count) updates from source: $($svcid.Name)"
+            Write-Debug "$dbgh - Found $(@($SearchResult.Updates).count) updates from source: $($svcid.Name)"
 
             @($SearchResult.Updates) | ForEach-Object {
                 $u = $_ ;
 
-                Write-Debug "In $($Providername) - Found update from source $($svcid.Name): $($u.Title)"
+                Write-Debug "$dbgh - Found update from source $($svcid.Name): $($u.Title)"
                 $names | ForEach-Object {
                     if ($u.Title -like "*$($_)*") {
                         $swid = @{
@@ -81,11 +84,13 @@ Function Find-Package {
 
 Function Get-InstalledPackage {
 Param()
+    $dbgh = "In $($Providername) - Get-InstalledPackage"
+    Write-Debug $dbgh
     try {
         $Session = New-Object -ComObject Microsoft.Update.Session
         $Searcher = $Session.CreateUpdateSearcher()
         $HistoryCount = $Searcher.GetTotalHistoryCount()
-        Write-Debug "In $($Providername) - About to list installed packages from $HistoryCount total WUA based packages"
+        Write-Debug "$dbgh - About to list installed packages from $HistoryCount total WUA based packages"
         $Searcher.QueryHistory(0,$HistoryCount) | ForEach-Object -Process {
             # IUpdateHistoryEntry > https://msdn.microsoft.com/en-us/library/windows/desktop/aa386400(v=vs.85).aspx
             if ($_.ResultCode -eq 2) {
@@ -115,6 +120,9 @@ Param(
     [string] $fastPackageReference
 )
 
+    $dbgh = "In $($Providername) - Install-Package"
+    Write-Debug $dbgh
+
     $Session = New-Object -ComObject Microsoft.Update.Session
     $updatesToDownload = New-Object -ComObject Microsoft.Update.UpdateColl
     $updatesToDownload.clear()
@@ -123,8 +131,9 @@ Param(
     $updatesToInstall.clear()
 
     if ($fastPackageReference) {
+        Write-Debug "$dbgh - About to find packages using fastPackageReference: $fastPackageReference"
         $pkg = Find-Package -Source (Resolve-PackageSource) | Where fastPackageReference -eq $fastPackageReference
-        Write-Debug "In $($Providername) - Install-Package - Found $($pkg.Count) matching $fastPackageReference"
+        Write-Debug "$dbgh - Found $($pkg.Count) matching $fastPackageReference"
 
         $pkg | ForEach-Object {
             $null = $updatesToDownload.Add(
@@ -133,26 +142,26 @@ Param(
         }
         if ($updatesToDownload.Count -ge 1) {
             $downloader.Updates = $updatesToDownload
-            Write-Debug "In $($Providername) - Install-Package - Downloading update $fastPackageReference" 
+            Write-Debug "$dbgh - Downloading update $fastPackageReference" 
             $downresults = $downloader.Download()
 
             if ($downresults.ResultCode -eq 2) {
 
-                Write-Debug "In $($Providername) - Install-Package - Successfully downloaded update $fastPackageReference" 
+                Write-Debug "$dbgh - Successfully downloaded update $fastPackageReference" 
                 $updatesToDownload | 
                 Where { -not($_.isInstalled) -and $_.isDownloaded} | ForEach-Object {
                     $updatesToInstall.Add($_) | Out-Null
                 }
                 $installer = $Session.CreateUpdateInstaller()
                 $installer.Updates = $updatesToInstall
-                Write-Debug "In $($Providername) - Install-Package - Installing update $fastPackageReference" 
+                Write-Debug "$dbgh - Installing update $fastPackageReference" 
                 $installationResult = $installer.Install()
             
                 if ($installationResult.ResultCode -eq 2) {
                     $pkg
                 }
             } else {
-                Write-Debug "In $($Providername) - Install-Package - Downloading update $fastPackageReference failed with result code $($installationResult.ResultCode)" 
+                Write-Debug "$dbgh - Downloading update $fastPackageReference failed with result code $($installationResult.ResultCode)" 
             }
         }
     }
